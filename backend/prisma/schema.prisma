@@ -1,0 +1,207 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["platform"]
+}
+
+// Demo users. No Keycloak in the POC (doc §87) — a user just picks one of these
+// seeded identities to establish user_id/team/role for the session.
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  team      String
+  role      String
+  createdAt DateTime @default(now())
+
+  @@map("users")
+  @@schema("platform")
+}
+
+// Deterministic governance policy row. Evaluated by a pure function, never an LLM.
+model Policy {
+  id            String   @id @default(cuid())
+  name          String
+  resourceType  String // "api" | "data_asset"
+  resourceMatch Json // matcher, e.g. { "classification": "PII" } or { "apiId": "..." }
+  role          String? // optional scoping
+  team          String?
+  action        String // e.g. "read"
+  decision      String // ALLOW | HITL_REQUIRED | HARD_DENY
+  hitlType      String? // HITL_API_ACCESS | HITL_DATA_ACCESS | HITL_ETL_EXECUTION
+  reason        String?
+  createdAt     DateTime @default(now())
+
+  @@map("policies")
+  @@schema("platform")
+}
+
+// The API Registry. query_plan is structured JSON (table/columns/filters/aggregation/joins),
+// never a raw SQL string — a deterministic compiler turns it into parameterized SQL at execution time.
+model ApiRegistryEntry {
+  id              String    @id @default(cuid())
+  name            String
+  description     String
+  method          String    @default("GET")
+  path            String    @unique
+  version         String    @default("v1")
+  status          String    @default("ACTIVE") // ACTIVE | DEPRECATED | BROKEN | UNUSED
+  metric          String
+  dimensions      Json // string[]
+  filterKeys      Json // string[]
+  classification  String
+  ownerTeam       String
+  queryPlan       Json
+  parameters      Json
+  responseSchema  Json
+  lastUsedAt      DateTime?
+  usageCount      Int       @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@map("api_registry")
+  @@schema("platform")
+}
+
+// Data Catalog: describes warehouse/source tables. Agents reason over this metadata,
+// never over raw information_schema or table contents directly.
+model DataAsset {
+  id             String       @id @default(cuid())
+  schemaName     String // warehouse | crm | erp | maintenance
+  tableName      String
+  description    String
+  owner          String
+  classification String
+  inWarehouse    Boolean      @default(true)
+  sourceSystem   String?
+  columns        DataColumn[]
+  createdAt      DateTime     @default(now())
+
+  @@unique([schemaName, tableName])
+  @@map("data_assets")
+  @@schema("platform")
+}
+
+model DataColumn {
+  id             String    @id @default(cuid())
+  assetId        String
+  asset          DataAsset @relation(fields: [assetId], references: [id])
+  columnName     String
+  dataType       String
+  description    String?
+  classification String
+  synonyms       Json // string[]
+  createdAt      DateTime  @default(now())
+
+  @@unique([assetId, columnName])
+  @@map("data_columns")
+  @@schema("platform")
+}
+
+// Human-in-the-loop requests. Persists enough to resume a paused workflow (doc §12).
+model HitlRequest {
+  id                String    @id @default(cuid())
+  workflowRunId     String
+  hitlType          String // HITL_API_ACCESS | HITL_DATA_ACCESS | HITL_ETL_EXECUTION
+  requesterId       String
+  approverRole      String
+  reason            String
+  requestedResource Json
+  requestedScope    Json?
+  status            String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  approverId        String?
+  approvalScope     Json?
+  rejectionReason   String?
+  decidedAt         DateTime?
+  createdAt         DateTime  @default(now())
+
+  @@map("hitl_requests")
+  @@schema("platform")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  requestId  String?
+  actorId    String?
+  action     String
+  resource   String?
+  decision   String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@map("audit_logs")
+  @@schema("platform")
+}
+
+// One row per Ask-Data request. thread_id links to the LangGraph Postgres checkpointer
+// in agent-service (schema "langgraph"), which owns the actual pause/resume state.
+model WorkflowRun {
+  id            String   @id @default(cuid())
+  requesterId   String
+  requestText   String
+  status        String   @default("RUNNING") // RUNNING | WAITING_HITL | COMPLETED | FAILED | REJECTED
+  threadId      String?  @unique
+  resultSummary Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("workflow_runs")
+  @@schema("platform")
+}
+
+// Offline Lifecycle Agent output, surfaced in the Insights UI (doc §80).
+model Report {
+  id          String   @id @default(cuid())
+  reportType  String
+  generatedAt DateTime @default(now())
+  periodStart DateTime
+  periodEnd   DateTime
+  agent       String
+  summary     String
+  findings    Json
+  severity    String
+  status      String   @default("NEW")
+  createdAt   DateTime @default(now())
+
+  @@map("reports")
+  @@schema("platform")
+}
+
+// Known ETL pipelines from a source system table into a warehouse table (doc §11, §101).
+model EtlPipeline {
+  id           String   @id @default(cuid())
+  name         String
+  description  String
+  sourceSchema String
+  sourceTable  String
+  targetTable  String // created in the warehouse schema
+  createdAt    DateTime @default(now())
+
+  runs EtlRun[]
+
+  @@unique([sourceSchema, sourceTable])
+  @@map("etl_pipelines")
+  @@schema("platform")
+}
+
+// One execution of a pipeline. `events` is the UI timeline (Requested → … → Warehouse Updated).
+model EtlRun {
+  id            String      @id @default(cuid())
+  pipelineId    String
+  pipeline      EtlPipeline @relation(fields: [pipelineId], references: [id])
+  hitlRequestId String?
+  requesterId   String
+  status        String      @default("REQUESTED") // REQUESTED | APPROVED | RUNNING | COMPLETED | REJECTED | FAILED
+  events        Json        @default("[]") // [{ at, step, detail? }]
+  rowsLoaded    Int?
+  error         String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@map("etl_runs")
+  @@schema("platform")
+}

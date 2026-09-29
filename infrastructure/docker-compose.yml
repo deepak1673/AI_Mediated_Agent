@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: novamart-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: novamart
+      POSTGRES_PASSWORD: novamart_dev_password
+      POSTGRES_DB: novamart
+    ports:
+      - "5433:5432"
+    volumes:
+      - novamart_pgdata:/var/lib/postgresql/data
+      - ./db-init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U novamart -d novamart"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  novamart_pgdata:

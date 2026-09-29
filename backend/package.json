@@ -1,0 +1,51 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Node/Express platform backend for the Agentic Data-to-API POC",
+  "main": "dist/server.js",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "test": "vitest run",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "seed": "tsx src/db/seed.ts",
+    "seed:warehouse": "tsx src/db/seedWarehouse.ts",
+    "seed:catalog": "tsx src/db/seedCatalog.ts",
+    "seed:registry": "tsx src/db/seedRegistry.ts",
+    "seed:etl": "tsx src/db/seedEtl.ts",
+    "seed:lifecycle": "tsx src/db/seedLifecycle.ts",
+    "demo:reset": "tsx src/db/resetDemo.ts",
+    "e2e": "tsx scripts/e2e.ts",
+    "seed:all": "npm run seed && npm run seed:warehouse && npm run seed:catalog && npm run seed:registry && npm run seed:etl && npm run seed:lifecycle"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@prisma/client": "^6.19.3",
+    "cookie-session": "^2.1.1",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.3",
+    "express": "^5.2.1",
+    "pg": "^8.23.0",
+    "pino": "^10.3.1",
+    "pino-http": "^11.0.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/cookie-session": "^2.0.49",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.2",
+    "@types/pg": "^8.23.1",
+    "pino-pretty": "^13.1.3",
+    "prisma": "^6.19.3",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11"
+  }
+}
